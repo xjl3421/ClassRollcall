@@ -1,0 +1,1349 @@
+<html lang="zh-CN"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>随机点名系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface@0.0.7/dist/blazeface.min.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#165DFF',
+                        secondary: '#FF7D00',
+                        neutral: '#F5F7FA',
+                        dark: '#1D2129',
+                    },
+                    fontFamily: {
+                        inter: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                    animation: {
+                        'bounce-slow': 'bounce 2s infinite',
+                        'float': 'float 3s ease-in-out infinite',
+                        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                    },
+                    keyframes: {
+                        float: {
+                            '0%, 100%': { transform: 'translateY(0)' },
+                            '50%': { transform: 'translateY(-10px)' },
+                        }
+                    }
+                },
+            }
+        }
+    </script>
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .text-shadow {
+                text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            .card-hover {
+                transition: all 0.3s ease;
+            }
+            .card-hover:hover {
+                transform: translateY(-5px);
+                box-shadow: 0 10px 25px -5px rgba(22, 93, 255, 0.1), 0 10px 10px -5px rgba(22, 93, 255, 0.04);
+            }
+            .name-selected {
+                animation: selected 0.5s ease-in-out;
+            }
+            @keyframes selected {
+                0% { transform: scale(1); }
+                50% { transform: scale(1.1); box-shadow: 0 0 20px rgba(255, 125, 0, 0.6); }
+                100% { transform: scale(1); }
+            }
+            .face-highlight {
+                border: 2px solid #FF7D00;
+                position: absolute;
+                border-radius: 50%;
+                box-shadow: 0 0 15px rgba(255, 125, 0, 0.6);
+                animation: pulse 1.5s infinite;
+            }
+            @keyframes pulse {
+                0% { box-shadow: 0 0 0 0 rgba(255, 125, 0, 0.7); }
+                70% { box-shadow: 0 0 0 10px rgba(255, 125, 0, 0); }
+                100% { box-shadow: 0 0 0 0 rgba(255, 125, 0, 0); }
+            }
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-indigo-50 min-h-screen font-inter text-dark">
+    <!-- 顶部导航栏 -->
+    <nav class="bg-white/80 backdrop-blur-md shadow-sm fixed w-full top-0 z-50 transition-all duration-300">
+        <div class="container mx-auto px-4 py-3 flex justify-between items-center">
+            <div class="flex items-center space-x-2">
+                <i class="fa-solid fa-random text-primary text-2xl"></i>
+                <h1 class="text-xl md:text-2xl font-bold text-primary">随机点名系统</h1>
+            </div>
+            <div class="flex items-center space-x-4">
+                <button id="theme-toggle" class="p-2 rounded-full hover:bg-gray-100 transition-colors">
+                    <i class="fa-solid fa-moon text-gray-600"></i>
+                </button>
+                <button class="hidden md:flex items-center space-x-1 bg-primary/10 text-primary px-4 py-2 rounded-full hover:bg-primary/20 transition-colors">
+                    <i class="fa-solid fa-question-circle"></i>
+                    <span>帮助</span>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 主内容区 -->
+    <main class="container mx-auto px-4 pt-24 pb-16">
+        <!-- 欢迎区域 -->
+        <section class="text-center mb-12 animate-fade-in">
+            <h2 class="text-[clamp(1.8rem,4vw,2.8rem)] font-bold text-dark mb-4 text-shadow">
+                随机点名，公平公正
+            </h2>
+            <p class="text-gray-600 max-w-2xl mx-auto text-[clamp(1rem,2vw,1.2rem)]">
+                多种随机点名方式，满足不同场景需求
+            </p>
+        </section>
+
+        <!-- 点名方式选择 -->
+        <section id="method-selection" class="max-w-4xl mx-auto mb-12">
+            <div class="bg-white rounded-2xl shadow-lg p-6 md:p-8">
+                <h3 class="text-xl font-semibold mb-6 flex items-center">
+                    <i class="fa-solid fa-list-alt text-primary mr-2"></i>选择点名方式
+                </h3>
+                
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div id="method-1" class="method-card bg-primary/5 rounded-xl p-6 border-2 border-primary cursor-pointer card-hover">
+                        <div class="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mb-4">
+                            <i class="fa-solid fa-file-excel text-primary text-xl"></i>
+                        </div>
+                        <h4 class="text-lg font-medium mb-2">Excel名单点名</h4>
+                        <p class="text-gray-600 text-sm">上传Excel文件，从名单中随机点名</p>
+                    </div>
+                    
+                    <div id="method-2" class="method-card bg-gray-50 rounded-xl p-6 border-2 border-gray-200 cursor-pointer card-hover">
+                        <div class="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+                            <i class="fa-solid fa-hashtag text-gray-600 text-xl"></i>
+                        </div>
+                        <h4 class="text-lg font-medium mb-2">学号随机点名</h4>
+                        <p class="text-gray-600 text-sm">设置学号范围，随机抽取学号</p>
+                    </div>
+                    
+                    <div id="method-3" class="method-card bg-gray-50 rounded-xl p-6 border-2 border-gray-200 cursor-pointer card-hover">
+                        <div class="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+                            <i class="fa-solid fa-camera text-gray-600 text-xl"></i>
+                        </div>
+                        <h4 class="text-lg font-medium mb-2">人脸随机点名</h4>
+                        <p class="text-gray-600 text-sm">拍照或上传照片，从人脸中随机选择</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 文件上传区域 (方法一) -->
+        <section id="upload-section" class="max-w-3xl mx-auto mb-16 hidden">
+            <div class="bg-white rounded-2xl shadow-lg p-6 md:p-8 card-hover">
+                <div class="text-center mb-8">
+                    <div class="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <i class="fa-solid fa-file-excel text-primary text-2xl"></i>
+                    </div>
+                    <h3 class="text-xl font-semibold mb-2">上传Excel文件</h3>
+                    <p class="text-gray-500">支持.xlsx和.xls格式，确保文件包含姓名列</p>
+                </div>
+                
+                <div class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-primary transition-colors cursor-pointer" id="drop-area">
+                    <input type="file" id="file-input" accept=".xlsx,.xls" class="hidden">
+                    <button type="button" id="file-select-btn" class="bg-primary hover:bg-primary/90 text-white font-medium py-3 px-6 rounded-lg transition-all shadow-md hover:shadow-lg transform hover:-translate-y-0.5">
+                        <i class="fa-solid fa-upload mr-2"></i>选择文件
+                    </button>
+                    <p class="mt-4 text-gray-500">或者拖放文件到此处</p>
+                    <div class="mt-4 text-sm text-gray-400">
+                        <i class="fa-solid fa-info-circle mr-1"></i>最大文件大小: 10MB
+                    </div>
+                </div>
+                
+                <div id="file-info" class="mt-6 hidden">
+                    <div class="bg-gray-50 rounded-lg p-4 flex items-center justify-between">
+                        <div class="flex items-center">
+                            <i class="fa-solid fa-file-excel text-primary mr-3"></i>
+                            <div>
+                                <p id="file-name" class="font-medium"></p>
+                                <p id="file-size" class="text-sm text-gray-500"></p>
+                            </div>
+                        </div>
+                        <button id="remove-file" class="text-gray-400 hover:text-red-500">
+                            <i class="fa-solid fa-times-circle"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 列选择区域 (方法一) -->
+        <section id="column-selection" class="max-w-3xl mx-auto mb-16 hidden">
+            <div class="bg-white rounded-2xl shadow-lg p-6 md:p-8">
+                <h3 class="text-xl font-semibold mb-6 flex items-center">
+                    <i class="fa-solid fa-list-ul text-primary mr-2"></i>选择姓名列
+                </h3>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                    <div class="col-span-1">
+                        <label for="name-column" class="block text-sm font-medium text-gray-700 mb-2">姓名列</label>
+                        <div class="relative">
+                            <select id="name-column" class="block w-full pl-3 pr-10 py-3 text-base border-gray-300 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm rounded-lg appearance-none bg-white">
+                                <!-- 选项将通过JavaScript动态添加 -->
+                            </select>
+                            <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700">
+                                <i class="fa-solid fa-chevron-down text-xs"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="flex justify-end">
+                    <button id="start-selection" class="bg-secondary hover:bg-secondary/90 text-white font-medium py-3 px-6 rounded-lg transition-all shadow-md hover:shadow-lg transform hover:-translate-y-0.5">
+                        <i class="fa-solid fa-play mr-2"></i>开始点名
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- 学号范围设置 (方法二) -->
+        <section id="number-range-section" class="max-w-3xl mx-auto mb-16 hidden">
+            <div class="bg-white rounded-2xl shadow-lg p-6 md:p-8">
+                <h3 class="text-xl font-semibold mb-6 flex items-center">
+                    <i class="fa-solid fa-sliders text-primary mr-2"></i>设置学号范围
+                </h3>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <div>
+                        <label for="min-number" class="block text-sm font-medium text-gray-700 mb-2">最小学号</label>
+                        <input type="number" id="min-number" value="0" min="0" class="block w-full px-4 py-3 text-base border-gray-300 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm rounded-lg">
+                    </div>
+                    
+                    <div>
+                        <label for="max-number" class="block text-sm font-medium text-gray-700 mb-2">最大学号</label>
+                        <input type="number" id="max-number" value="50" min="1" class="block w-full px-4 py-3 text-base border-gray-300 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm rounded-lg">
+                    </div>
+                </div>
+                
+                <div class="flex justify-end">
+                    <button id="start-number-selection" class="bg-secondary hover:bg-secondary/90 text-white font-medium py-3 px-6 rounded-lg transition-all shadow-md hover:shadow-lg transform hover:-translate-y-0.5">
+                        <i class="fa-solid fa-play mr-2"></i>开始点名
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- 人脸拍照/上传区域 (方法三) -->
+        <section id="face-section" class="max-w-4xl mx-auto mb-16 hidden">
+            <div class="bg-white rounded-2xl shadow-lg p-6 md:p-8">
+                <h3 class="text-xl font-semibold mb-6 flex items-center">
+                    <i class="fa-solid fa-camera text-primary mr-2"></i>人脸随机点名
+                </h3>
+                
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <!-- 左侧：摄像头/图片区域 -->
+                    <div class="space-y-6">
+                        <div class="relative">
+                            <div class="aspect-video bg-gray-100 rounded-xl overflow-hidden relative">
+                                <video id="video" class="w-full h-full object-cover" autoplay="" muted="" playsinline=""></video>
+                                <canvas id="canvas" class="w-full h-full object-cover absolute top-0 left-0 hidden"></canvas>
+                                <img id="face-image" class="w-full h-full object-cover hidden" alt="人脸图片">
+                                <div id="face-highlights" class="w-full h-full absolute top-0 left-0"></div>
+                                
+                                <!-- 加载状态 -->
+                                <div id="face-loading" class="absolute inset-0 bg-black/50 flex items-center justify-center hidden">
+                                    <div class="w-12 h-12 border-4 border-white border-t-transparent rounded-full animate-spin"></div>
+                                </div>
+                            </div>
+                            
+                            <!-- 控制按钮 -->
+                            <div class="flex justify-center space-x-4 mt-4">
+                                <button id="start-camera" class="bg-primary hover:bg-primary/90 text-white font-medium py-2 px-4 rounded-lg transition-all shadow-md hover:shadow-lg">
+                                    <i class="fa-solid fa-video mr-2"></i>开启摄像头
+                                </button>
+                                <button id="capture-image" class="bg-secondary hover:bg-secondary/90 text-white font-medium py-2 px-4 rounded-lg transition-all shadow-md hover:shadow-lg hidden">
+                                    <i class="fa-solid fa-camera mr-2"></i>拍照
+                                </button>
+                                <button id="upload-image-btn" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded-lg transition-all shadow-md hover:shadow-lg">
+                                    <i class="fa-solid fa-upload mr-2"></i>上传图片
+                                </button>
+                                <input type="file" id="image-upload" accept="image/*" class="hidden">
+                            </div>
+                        </div>
+                        
+                        <div class="bg-gray-50 rounded-lg p-4">
+                            <h4 class="font-medium mb-2 flex items-center">
+                                <i class="fa-solid fa-info-circle text-primary mr-2"></i>使用提示
+                            </h4>
+                            <ul class="text-sm text-gray-600 space-y-2">
+                                <li>• 确保光线充足，人脸清晰可见</li>
+                                <li>• 尽量让所有人脸都出现在画面中</li>
+                                <li>• 系统会自动检测图片中的人脸</li>
+                                <li>• 点击"拍照"或"上传图片"后，系统会分析人脸并随机选择</li>
+                            </ul>
+                        </div>
+                    </div>
+                    
+                    <!-- 右侧：检测结果和操作 -->
+                    <div>
+                        <div class="bg-gray-50 rounded-lg p-4 mb-6">
+                            <h4 class="font-medium mb-3 flex items-center">
+                                <i class="fa-solid fa-users text-primary mr-2"></i>检测结果
+                            </h4>
+                            <div id="face-detection-results" class="flex flex-wrap gap-2">
+                                <div class="text-gray-400 text-sm">未检测到人脸</div>
+                            </div>
+                        </div>
+                        
+                        <div class="bg-white border border-gray-200 rounded-lg p-4 mb-6">
+                            <h4 class="font-medium mb-3 flex items-center">
+                                <i class="fa-solid fa-cog text-primary mr-2"></i>识别设置
+                            </h4>
+                            <div class="space-y-3">
+                                <div>
+                                    <label class="flex items-center">
+                                        <input type="checkbox" id="use-faces-api" class="h-4 w-4 text-primary focus:ring-primary border-gray-300 rounded" checked="">
+                                        <span class="ml-2 text-sm text-gray-700">使用人脸API增强识别</span>
+                                    </label>
+                                    <p class="text-xs text-gray-500 mt-1">
+                                        开启后将使用更先进的人脸检测算法，但可能会增加处理时间
+                                    </p>
+                                </div>
+                                
+                                <div>
+                                    <label for="min-confidence" class="block text-sm font-medium text-gray-700 mb-1">最小置信度</label>
+                                    <input type="range" id="min-confidence" min="0.5" max="0.95" step="0.05" value="0.8" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary">
+                                    <div class="flex justify-between text-xs text-gray-500 mt-1">
+                                        <span>低</span>
+                                        <span id="confidence-value">0.8</span>
+                                        <span>高</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="flex justify-end">
+                            <button id="start-face-selection" class="bg-secondary hover:bg-secondary/90 text-white font-medium py-3 px-6 rounded-lg transition-all shadow-md hover:shadow-lg transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed" disabled="">
+                                <i class="fa-solid fa-play mr-2"></i>开始随机选择
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 点名区域 (方法一和方法二共用) -->
+        <section id="selection-area" class="max-w-4xl mx-auto mb-16 hidden">
+            <div class="bg-white rounded-2xl shadow-lg p-6 md:p-8">
+                <div class="flex justify-between items-center mb-8">
+                    <h3 class="text-xl font-semibold flex items-center">
+                        <i class="fa-solid fa-random text-primary mr-2"></i><span id="selection-title">随机点名</span>
+                    </h3>
+                    <div class="flex space-x-2">
+                        <span id="total-count" class="bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-sm font-medium">
+                            总人数: <span id="total-number">0</span>
+                        </span>
+                        <span id="picked-count" class="bg-primary/10 text-primary px-3 py-1 rounded-full text-sm font-medium">
+                            已点: <span id="picked-number">0</span>
+                        </span>
+                    </div>
+                </div>
+                
+                <div class="relative h-64 md:h-80 flex items-center justify-center bg-gradient-to-r from-primary/5 to-secondary/5 rounded-xl mb-8 overflow-hidden">
+                    <!-- 装饰元素 -->
+                    <div class="absolute -top-10 -right-10 w-40 h-40 bg-primary/5 rounded-full"></div>
+                    <div class="absolute -bottom-10 -left-10 w-40 h-40 bg-secondary/5 rounded-full"></div>
+                    
+                    <div id="name-display" class="text-center z-10">
+                        <p class="text-gray-500 mb-2 text-sm">准备开始</p>
+                        <div id="name-box" class="text-[clamp(2rem,5vw,3.5rem)] font-bold text-dark py-4 px-8 rounded-xl min-h-[120px] flex items-center justify-center">
+                            点击开始按钮
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="flex justify-center space-x-4">
+                    <button id="reset-selection" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-3 px-6 rounded-lg transition-all shadow-md hover:shadow-lg transform hover:-translate-y-0.5">
+                        <i class="fa-solid fa-refresh mr-2"></i>重置
+                    </button>
+                    <button id="pick-name" class="bg-secondary hover:bg-secondary/90 text-white font-medium py-3 px-8 rounded-lg transition-all shadow-md hover:shadow-lg transform hover:-translate-y-0.5 text-lg">
+                        <i class="fa-solid fa-hand-pointer mr-2"></i>点名
+                    </button>
+                    <button id="back-to-methods" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-3 px-6 rounded-lg transition-all shadow-md hover:shadow-lg transform hover:-translate-y-0.5">
+                        <i class="fa-solid fa-arrow-left mr-2"></i>返回
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- 人脸点名结果区域 (方法三) -->
+        <section id="face-selection-area" class="max-w-4xl mx-auto mb-16 hidden">
+            <div class="bg-white rounded-2xl shadow-lg p-6 md:p-8">
+                <div class="flex justify-between items-center mb-8">
+                    <h3 class="text-xl font-semibold flex items-center">
+                        <i class="fa-solid fa-user-circle text-primary mr-2"></i>人脸随机选择
+                    </h3>
+                    <div class="flex space-x-2">
+                        <span id="face-total-count" class="bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-sm font-medium">
+                            检测到人脸: <span id="face-total-number">0</span>
+                        </span>
+                    </div>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                    <div class="md:col-span-2">
+                        <div class="relative aspect-video bg-gray-100 rounded-xl overflow-hidden">
+                            <img id="selected-face-image" class="w-full h-full object-cover" alt="人脸图片">
+                            <div id="selected-face-highlight" class="w-full h-full absolute top-0 left-0"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="flex flex-col justify-center">
+                        <div class="text-center">
+                            <p class="text-gray-500 mb-2 text-sm">已选中</p>
+                            <div id="face-name-box" class="text-[clamp(1.5rem,3vw,2.5rem)] font-bold text-dark py-4 px-8 rounded-xl bg-gray-50 min-h-[120px] flex items-center justify-center">
+                                人脸 #<span id="face-number">0</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="flex justify-center space-x-4">
+                    <button id="reset-face-selection" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-3 px-6 rounded-lg transition-all shadow-md hover:shadow-lg transform hover:-translate-y-0.5">
+                        <i class="fa-solid fa-refresh mr-2"></i>重新选择
+                    </button>
+                    <button id="back-to-face" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-3 px-6 rounded-lg transition-all shadow-md hover:shadow-lg transform hover:-translate-y-0.5">
+                        <i class="fa-solid fa-arrow-left mr-2"></i>返回
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- 已点名列表 -->
+        <section id="history-section" class="max-w-4xl mx-auto mb-16 hidden">
+            <div class="bg-white rounded-2xl shadow-lg p-6 md:p-8">
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="text-xl font-semibold flex items-center">
+                        <i class="fa-solid fa-history text-primary mr-2"></i><span id="history-title">点名历史</span>
+                    </h3>
+                    <button id="clear-history" class="text-sm text-gray-500 hover:text-red-500 flex items-center">
+                        <i class="fa-solid fa-trash mr-1"></i>清空历史
+                    </button>
+                </div>
+                
+                <div id="history-list" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 max-h-60 overflow-y-auto p-2">
+                    <!-- 历史记录将通过JavaScript动态添加 -->
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- 页脚 -->
+    <footer class="bg-white shadow-inner py-6">
+        <div class="container mx-auto px-4 text-center">
+            <p class="text-gray-500">© 2025 随机点名系统 | 简单高效的课堂工具</p>
+            <div class="mt-4 flex justify-center space-x-4">
+                <a href="#" class="text-gray-400 hover:text-primary transition-colors">
+                    <i class="fa-solid fa-question-circle"></i>
+                </a>
+                <a href="#" class="text-gray-400 hover:text-primary transition-colors">
+                    <i class="fa-solid fa-cog"></i>
+                </a>
+                <a href="#" class="text-gray-400 hover:text-primary transition-colors">
+                    <i class="fa-solid fa-envelope"></i>
+                </a>
+            </div>
+        </div>
+    </footer>
+
+    <!-- 加载动画模态框 -->
+    <div id="loading-modal" class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-xl p-8 flex flex-col items-center">
+            <div class="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4"></div>
+            <p id="loading-text" class="text-lg font-medium text-gray-800">处理中...</p>
+        </div>
+    </div>
+
+    <script>
+        // 全局变量
+        let currentMethod = null;
+        let excelData = null;
+        let nameColumn = null;
+        let names = [];
+        let pickedNames = [];
+        let isSelecting = false;
+        let selectionInterval = null;
+        let minNumber = 0;
+        let maxNumber = 50;
+        let detectedFaces = [];
+        let model = null;
+        let videoStream = null;
+        
+        // DOM 元素
+        const methodCards = document.querySelectorAll('.method-card');
+        const uploadSection = document.getElementById('upload-section');
+        const fileInput = document.getElementById('file-input');
+        const fileSelectBtn = document.getElementById('file-select-btn');
+        const dropArea = document.getElementById('drop-area');
+        const fileInfo = document.getElementById('file-info');
+        const fileName = document.getElementById('file-name');
+        const fileSize = document.getElementById('file-size');
+        const removeFile = document.getElementById('remove-file');
+        const columnSelection = document.getElementById('column-selection');
+        const nameColumnSelect = document.getElementById('name-column');
+        const startSelection = document.getElementById('start-selection');
+        const numberRangeSection = document.getElementById('number-range-section');
+        const minNumberInput = document.getElementById('min-number');
+        const maxNumberInput = document.getElementById('max-number');
+        const startNumberSelection = document.getElementById('start-number-selection');
+        const faceSection = document.getElementById('face-section');
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const faceImage = document.getElementById('face-image');
+        const faceHighlights = document.getElementById('face-highlights');
+        const faceLoading = document.getElementById('face-loading');
+        const startCamera = document.getElementById('start-camera');
+        const captureImage = document.getElementById('capture-image');
+        const uploadImageBtn = document.getElementById('upload-image-btn');
+        const imageUpload = document.getElementById('image-upload');
+        const faceDetectionResults = document.getElementById('face-detection-results');
+        const useFacesApi = document.getElementById('use-faces-api');
+        const minConfidence = document.getElementById('min-confidence');
+        const confidenceValue = document.getElementById('confidence-value');
+        const startFaceSelection = document.getElementById('start-face-selection');
+        const selectionArea = document.getElementById('selection-area');
+        const selectionTitle = document.getElementById('selection-title');
+        const nameDisplay = document.getElementById('name-display');
+        const nameBox = document.getElementById('name-box');
+        const pickName = document.getElementById('pick-name');
+        const resetSelection = document.getElementById('reset-selection');
+        const backToMethods = document.getElementById('back-to-methods');
+        const totalCount = document.getElementById('total-number');
+        const pickedCount = document.getElementById('picked-number');
+        const faceSelectionArea = document.getElementById('face-selection-area');
+        const selectedFaceImage = document.getElementById('selected-face-image');
+        const selectedFaceHighlight = document.getElementById('selected-face-highlight');
+        const faceNameBox = document.getElementById('face-name-box');
+        const faceNumber = document.getElementById('face-number');
+        const faceTotalNumber = document.getElementById('face-total-number');
+        const resetFaceSelection = document.getElementById('reset-face-selection');
+        const backToFace = document.getElementById('back-to-face');
+        const historySection = document.getElementById('history-section');
+        const historyTitle = document.getElementById('history-title');
+        const historyList = document.getElementById('history-list');
+        const clearHistory = document.getElementById('clear-history');
+        const loadingModal = document.getElementById('loading-modal');
+        const loadingText = document.getElementById('loading-text');
+        const themeToggle = document.getElementById('theme-toggle');
+        
+        // 页面加载完成后执行
+        document.addEventListener('DOMContentLoaded', () => {
+            // 初始化人脸检测模型
+            loadFaceDetectionModel();
+            
+            // 方法选择
+            methodCards.forEach(card => {
+                card.addEventListener('click', () => {
+                    // 重置所有卡片样式
+                    methodCards.forEach(c => {
+                        c.classList.remove('bg-primary/5', 'border-primary');
+                        c.classList.add('bg-gray-50', 'border-gray-200');
+                        c.querySelector('div:first-child').classList.remove('bg-primary/10');
+                        c.querySelector('div:first-child').classList.add('bg-gray-100');
+                        c.querySelector('i').classList.remove('text-primary');
+                        c.querySelector('i').classList.add('text-gray-600');
+                    });
+                    
+                    // 设置选中卡片样式
+                    card.classList.remove('bg-gray-50', 'border-gray-200');
+                    card.classList.add('bg-primary/5', 'border-primary');
+                    card.querySelector('div:first-child').classList.remove('bg-gray-100');
+                    card.querySelector('div:first-child').classList.add('bg-primary/10');
+                    card.querySelector('i').classList.remove('text-gray-600');
+                    card.querySelector('i').classList.add('text-primary');
+                    
+                    // 显示对应区域
+                    if (card.id === 'method-1') {
+                        currentMethod = 1;
+                        uploadSection.classList.remove('hidden');
+                        numberRangeSection.classList.add('hidden');
+                        faceSection.classList.add('hidden');
+                        selectionArea.classList.add('hidden');
+                        faceSelectionArea.classList.add('hidden');
+                        historySection.classList.add('hidden');
+                        selectionTitle.textContent = '随机点名';
+                        historyTitle.textContent = '点名历史';
+                    } else if (card.id === 'method-2') {
+                        currentMethod = 2;
+                        uploadSection.classList.add('hidden');
+                        numberRangeSection.classList.remove('hidden');
+                        faceSection.classList.add('hidden');
+                        selectionArea.classList.add('hidden');
+                        faceSelectionArea.classList.add('hidden');
+                        historySection.classList.add('hidden');
+                        selectionTitle.textContent = '随机抽取学号';
+                        historyTitle.textContent = '抽取历史';
+                    } else if (card.id === 'method-3') {
+                        currentMethod = 3;
+                        uploadSection.classList.add('hidden');
+                        numberRangeSection.classList.add('hidden');
+                        faceSection.classList.remove('hidden');
+                        selectionArea.classList.add('hidden');
+                        faceSelectionArea.classList.add('hidden');
+                        historySection.classList.add('hidden');
+                    }
+                });
+            });
+            
+            // 文件选择按钮点击事件
+            fileSelectBtn.addEventListener('click', () => {
+                fileInput.click();
+            });
+            
+            // 文件选择事件
+            fileInput.addEventListener('change', handleFileSelect);
+            
+            // 拖放事件
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                dropArea.addEventListener(eventName, preventDefaults, false);
+            });
+            
+            function preventDefaults(e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+            
+            ['dragenter', 'dragover'].forEach(eventName => {
+                dropArea.addEventListener(eventName, highlight, false);
+            });
+            
+            ['dragleave', 'drop'].forEach(eventName => {
+                dropArea.addEventListener(eventName, unhighlight, false);
+            });
+            
+            function highlight() {
+                dropArea.classList.add('border-primary');
+                dropArea.classList.add('bg-primary/5');
+            }
+            
+            function unhighlight() {
+                dropArea.classList.remove('border-primary');
+                dropArea.classList.remove('bg-primary/5');
+            }
+            
+            dropArea.addEventListener('drop', handleDrop, false);
+            
+            function handleDrop(e) {
+                const dt = e.dataTransfer;
+                const files = dt.files;
+                
+                if (files.length) {
+                    handleFiles(files);
+                }
+            }
+            
+            // 移除文件
+            removeFile.addEventListener('click', () => {
+                resetFileInput();
+            });
+            
+            // 开始点名 (方法一)
+            startSelection.addEventListener('click', () => {
+                nameColumn = nameColumnSelect.value;
+                if (!nameColumn) {
+                    showToast('请选择姓名列', 'error');
+                    return;
+                }
+                
+                // 提取姓名列表
+                names = excelData.map(row => row[nameColumn]).filter(name => name && name.trim() !== '');
+                
+                if (names.length === 0) {
+                    showToast('所选列中没有找到有效姓名', 'error');
+                    return;
+                }
+                
+                // 更新计数
+                totalCount.textContent = names.length;
+                pickedCount.textContent = pickedNames.length;
+                
+                // 显示点名区域，隐藏其他区域
+                columnSelection.classList.add('hidden');
+                selectionArea.classList.remove('hidden');
+                historySection.classList.remove('hidden');
+                
+                // 更新历史记录
+                updateHistoryList();
+            });
+            
+            // 学号范围设置 (方法二)
+            minNumberInput.addEventListener('change', () => {
+                minNumber = parseInt(minNumberInput.value) || 0;
+                if (minNumber >= maxNumber) {
+                    maxNumber = minNumber + 1;
+                    maxNumberInput.value = maxNumber;
+                }
+            });
+            
+            maxNumberInput.addEventListener('change', () => {
+                maxNumber = parseInt(maxNumberInput.value) || 50;
+                if (maxNumber <= minNumber) {
+                    minNumber = maxNumber - 1;
+                    minNumberInput.value = minNumber;
+                }
+            });
+            
+            // 开始学号点名 (方法二)
+            startNumberSelection.addEventListener('click', () => {
+                minNumber = parseInt(minNumberInput.value) || 0;
+                maxNumber = parseInt(maxNumberInput.value) || 50;
+                
+                if (maxNumber <= minNumber) {
+                    showToast('最大学号必须大于最小学号', 'error');
+                    return;
+                }
+                
+                // 生成学号列表
+                names = [];
+                for (let i = minNumber; i <= maxNumber; i++) {
+                    names.push(i.toString());
+                }
+                
+                // 更新计数
+                totalCount.textContent = names.length;
+                pickedCount.textContent = pickedNames.length;
+                
+                // 显示点名区域，隐藏其他区域
+                numberRangeSection.classList.add('hidden');
+                selectionArea.classList.remove('hidden');
+                historySection.classList.remove('hidden');
+                
+                // 更新历史记录
+                updateHistoryList();
+            });
+            
+            // 人脸检测相关 (方法三)
+            startCamera.addEventListener('click', startCameraStream);
+            captureImage.addEventListener('click', captureFaceImage);
+            uploadImageBtn.addEventListener('click', () => {
+                imageUpload.click();
+            });
+            
+            imageUpload.addEventListener('change', handleImageUpload);
+            
+            minConfidence.addEventListener('input', () => {
+                confidenceValue.textContent = minConfidence.value;
+            });
+            
+            startFaceSelection.addEventListener('click', selectRandomFace);
+            
+            // 点名按钮 (方法一和方法二)
+            pickName.addEventListener('click', () => {
+                if (isSelecting) {
+                    stopSelection();
+                } else {
+                    // 检查是否所有名字都已被选中
+                    if (pickedNames.length >= names.length) {
+                        showToast('所有名字都已被选中！', 'info');
+                        resetSelection.click();
+                        return;
+                    }
+                    
+                    startSelectionAnimation();
+                }
+            });
+            
+            // 重置点名 (方法一和方法二)
+            resetSelection.addEventListener('click', () => {
+                if (isSelecting) {
+                    stopSelection();
+                }
+                
+                pickedNames = [];
+                nameBox.textContent = currentMethod === 1 ? '点击开始按钮' : '点击开始按钮';
+                nameBox.classList.remove('name-selected');
+                nameDisplay.querySelector('p').textContent = '准备开始';
+                pickedCount.textContent = '0';
+                updateHistoryList();
+            });
+            
+            // 返回方法选择
+            backToMethods.addEventListener('click', () => {
+                if (isSelecting) {
+                    stopSelection();
+                }
+                
+                selectionArea.classList.add('hidden');
+                historySection.classList.add('hidden');
+                
+                if (currentMethod === 1) {
+                    uploadSection.classList.remove('hidden');
+                } else if (currentMethod === 2) {
+                    numberRangeSection.classList.remove('hidden');
+                }
+            });
+            
+            // 重新选择人脸 (方法三)
+            resetFaceSelection.addEventListener('click', selectRandomFace);
+            
+            // 返回人脸选择 (方法三)
+            backToFace.addEventListener('click', () => {
+                faceSelectionArea.classList.add('hidden');
+                faceSection.classList.remove('hidden');
+            });
+            
+            // 清空历史记录
+            clearHistory.addEventListener('click', () => {
+                pickedNames = [];
+                if (currentMethod === 1 || currentMethod === 2) {
+                    pickedCount.textContent = '0';
+                }
+                updateHistoryList();
+            });
+            
+            // 主题切换
+            themeToggle.addEventListener('click', toggleTheme);
+            
+            // 滚动效果
+            window.addEventListener('scroll', () => {
+                const nav = document.querySelector('nav');
+                if (window.scrollY > 10) {
+                    nav.classList.add('shadow-md');
+                    nav.classList.remove('shadow-sm');
+                } else {
+                    nav.classList.remove('shadow-md');
+                    nav.classList.add('shadow-sm');
+                }
+            });
+        });
+        
+        // 加载人脸检测模型
+        async function loadFaceDetectionModel() {
+            try {
+                showLoading('正在加载人脸检测模型...');
+                model = await blazeface.load();
+                hideLoading();
+                showToast('人脸检测模型加载成功', 'success');
+            } catch (error) {
+                hideLoading();
+                showToast('加载人脸检测模型失败: ' + error.message, 'error');
+                console.error('Failed to load face detection model:', error);
+            }
+        }
+        
+        // 处理文件选择
+        function handleFileSelect(e) {
+            const files = e.target.files;
+            if (files.length) {
+                handleFiles(files);
+            }
+        }
+        
+        // 处理文件
+        function handleFiles(files) {
+            const file = files[0];
+            if (!file.name.match(/\.(xlsx|xls)$/i)) {
+                showToast('请上传Excel文件 (.xlsx 或 .xls)', 'error');
+                return;
+            }
+            
+            // 显示文件信息
+            fileName.textContent = file.name;
+            fileSize.textContent = formatFileSize(file.size);
+            fileInfo.classList.remove('hidden');
+            
+            // 处理Excel文件
+            showLoading('正在读取文件...');
+            const reader = new FileReader();
+            
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    
+                    // 获取第一个工作表
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    
+                    // 转换为JSON
+                    excelData = XLSX.utils.sheet_to_json(worksheet);
+                    
+                    if (excelData.length === 0) {
+                        throw new Error('Excel文件中没有数据');
+                    }
+                    
+                    // 获取列名
+                    const columnNames = Object.keys(excelData[0]);
+                    
+                    // 清空并添加列选项
+                    nameColumnSelect.innerHTML = '';
+                    columnNames.forEach(column => {
+                        const option = document.createElement('option');
+                        option.value = column;
+                        option.textContent = column;
+                        nameColumnSelect.appendChild(option);
+                    });
+                    
+                    // 显示列选择区域
+                    columnSelection.classList.remove('hidden');
+                    hideLoading();
+                    
+                } catch (error) {
+                    hideLoading();
+                    showToast(`处理Excel文件时出错: ${error.message}`, 'error');
+                    resetFileInput();
+                }
+            };
+            
+            reader.onerror = function() {
+                hideLoading();
+                showToast('读取文件时发生错误', 'error');
+                resetFileInput();
+            };
+            
+            reader.readAsArrayBuffer(file);
+        }
+        
+        // 重置文件输入
+        function resetFileInput() {
+            fileInput.value = '';
+            fileInfo.classList.add('hidden');
+            columnSelection.classList.add('hidden');
+            selectionArea.classList.add('hidden');
+            historySection.classList.add('hidden');
+            excelData = null;
+            nameColumn = null;
+            names = [];
+            pickedNames = [];
+        }
+        
+        // 格式化文件大小
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+        
+        // 开始选择动画 (方法一和方法二)
+        function startSelectionAnimation() {
+            isSelecting = true;
+            pickName.innerHTML = '<i class="fa-solid fa-stop mr-2"></i>停止';
+            nameDisplay.querySelector('p').textContent = '正在随机选择...';
+            nameBox.classList.remove('name-selected');
+            
+            // 过滤掉已经选中的名字
+            const availableNames = names.filter(name => !pickedNames.includes(name));
+            
+            // 快速切换名字
+            let counter = 0;
+            selectionInterval = setInterval(() => {
+                const randomIndex = Math.floor(Math.random() * availableNames.length);
+                nameBox.textContent = availableNames[randomIndex];
+                
+                // 动画效果
+                nameBox.classList.add('animate-pulse-slow');
+                
+                counter++;
+                if (counter > 10) {
+                    nameBox.classList.remove('animate-pulse-slow');
+                    counter = 0;
+                }
+            }, 100);
+        }
+        
+        // 停止选择并确定结果 (方法一和方法二)
+        function stopSelection() {
+            clearInterval(selectionInterval);
+            isSelecting = false;
+            pickName.innerHTML = '<i class="fa-solid fa-hand-pointer mr-2"></i>点名';
+            
+            // 过滤掉已经选中的名字
+            const availableNames = names.filter(name => !pickedNames.includes(name));
+            
+            if (availableNames.length === 0) {
+                nameBox.textContent = '所有名字都已被选中';
+                nameDisplay.querySelector('p').textContent = '已完成';
+                return;
+            }
+            
+            // 随机选择一个名字
+            const randomIndex = Math.floor(Math.random() * availableNames.length);
+            const selectedName = availableNames[randomIndex];
+            
+            // 添加到已选列表
+            pickedNames.push(selectedName);
+            
+            // 更新显示
+            nameBox.textContent = selectedName;
+            nameBox.classList.add('name-selected');
+            nameDisplay.querySelector('p').textContent = '已选中';
+            pickedCount.textContent = pickedNames.length;
+            
+            // 更新历史记录
+            updateHistoryList();
+            
+            // 播放动画
+            nameBox.animate([
+                { transform: 'scale(1)' },
+                { transform: 'scale(1.1)' },
+                { transform: 'scale(1)' }
+            ], {
+                duration: 500,
+                easing: 'ease-in-out'
+            });
+            
+            // 显示提示
+            showToast(`已选中: ${selectedName}`, 'success');
+        }
+        
+        // 开启摄像头
+        async function startCameraStream() {
+            if (!model) {
+                showToast('人脸检测模型未加载完成', 'error');
+                return;
+            }
+            
+            try {
+                videoStream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { width: 640, height: 480 } 
+                });
+                video.srcObject = videoStream;
+                
+                // 显示拍照按钮
+                startCamera.classList.add('hidden');
+                captureImage.classList.remove('hidden');
+                
+                // 隐藏图片和canvas
+                faceImage.classList.add('hidden');
+                canvas.classList.add('hidden');
+                
+                // 清空人脸高亮
+                faceHighlights.innerHTML = '';
+                
+                showToast('摄像头已开启', 'success');
+            } catch (error) {
+                showToast('无法访问摄像头: ' + error.message, 'error');
+                console.error('Error accessing camera:', error);
+            }
+        }
+        
+        // 捕获人脸图片
+        function captureFaceImage() {
+            if (!videoStream) return;
+            
+            // 停止摄像头
+            videoStream.getTracks().forEach(track => track.stop());
+            videoStream = null;
+            
+            // 显示拍照结果
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // 隐藏视频，显示canvas
+            video.classList.add('hidden');
+            canvas.classList.remove('hidden');
+            captureImage.classList.add('hidden');
+            startCamera.classList.remove('hidden');
+            
+            // 检测人脸
+            detectFacesInCanvas();
+        }
+        
+        // 处理图片上传
+        function handleImageUpload(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            if (!file.type.match('image.*')) {
+                showToast('请上传图片文件', 'error');
+                return;
+            }
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                // 显示图片
+                faceImage.src = e.target.result;
+                faceImage.classList.remove('hidden');
+                video.classList.add('hidden');
+                canvas.classList.add('hidden');
+                captureImage.classList.add('hidden');
+                startCamera.classList.remove('hidden');
+                
+                // 清空人脸高亮
+                faceHighlights.innerHTML = '';
+                
+                // 图片加载完成后检测人脸
+                faceImage.onload = function() {
+                    detectFacesInImage();
+                };
+            };
+            reader.readAsDataURL(file);
+        }
+        
+        // 在canvas中检测人脸
+        async function detectFacesInCanvas() {
+            if (!model) {
+                showToast('人脸检测模型未加载完成', 'error');
+                return;
+            }
+            
+            showLoading('正在检测人脸...');
+            
+            try {
+                // 检测人脸
+                const predictions = await model.estimateFaces(canvas, false);
+                processFacePredictions(predictions);
+            } catch (error) {
+                showToast('人脸检测失败: ' + error.message, 'error');
+                console.error('Face detection error:', error);
+            } finally {
+                hideLoading();
+            }
+        }
+        
+        // 在图片中检测人脸
+        async function detectFacesInImage() {
+            if (!model) {
+                showToast('人脸检测模型未加载完成', 'error');
+                return;
+            }
+            
+            showLoading('正在检测人脸...');
+            
+            try {
+                // 创建临时canvas用于检测
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = faceImage.width;
+                tempCanvas.height = faceImage.height;
+                const ctx = tempCanvas.getContext('2d');
+                ctx.drawImage(faceImage, 0, 0, tempCanvas.width, tempCanvas.height);
+                
+                // 检测人脸
+                const predictions = await model.estimateFaces(tempCanvas, false);
+                processFacePredictions(predictions);
+            } catch (error) {
+                showToast('人脸检测失败: ' + error.message, 'error');
+                console.error('Face detection error:', error);
+            } finally {
+                hideLoading();
+            }
+        }
+        
+        // 处理人脸检测结果
+        function processFacePredictions(predictions) {
+            // 清空之前的人脸高亮
+            faceHighlights.innerHTML = '';
+            
+            // 过滤置信度低的人脸
+            const minConfidenceValue = parseFloat(minConfidence.value);
+            detectedFaces = predictions.filter(prediction => prediction.score[0] >= minConfidenceValue);
+            
+            // 更新检测结果显示
+            faceDetectionResults.innerHTML = '';
+            
+            if (detectedFaces.length === 0) {
+                faceDetectionResults.innerHTML = '<div class="text-gray-400 text-sm">未检测到人脸</div>';
+                startFaceSelection.disabled = true;
+            } else {
+                faceDetectionResults.innerHTML = `<div class="text-green-600 text-sm mb-2">已检测到 ${detectedFaces.length} 个人脸</div>`;
+                
+                // 显示人脸缩略图
+                detectedFaces.forEach((face, index) => {
+                    const faceBox = face.box;
+                    
+                    // 创建人脸高亮框
+                    const highlight = document.createElement('div');
+                    highlight.className = 'face-highlight';
+                    highlight.style.left = `${faceBox.x}px`;
+                    highlight.style.top = `${faceBox.y}px`;
+                    highlight.style.width = `${faceBox.width}px`;
+                    highlight.style.height = `${faceBox.height}px`;
+                    faceHighlights.appendChild(highlight);
+                    
+                    // 创建人脸缩略图
+                    const faceThumbnail = document.createElement('div');
+                    faceThumbnail.className = 'relative';
+                    faceThumbnail.innerHTML = `
+                        <div class="w-16 h-16 rounded-full overflow-hidden border-2 border-primary/30">
+                            <canvas id="face-${index}" width="64" height="64" class="w-full h-full object-cover"></canvas>
+                        </div>
+                        <span class="absolute -top-1 -right-1 bg-primary text-white text-xs w-5 h-5 flex items-center justify-center rounded-full">${index + 1}</span>
+                    `;
+                    faceDetectionResults.appendChild(faceThumbnail);
+                    
+                    // 绘制人脸缩略图
+                    const faceCanvas = document.getElementById(`face-${index}`);
+                    const ctx = faceCanvas.getContext('2d');
+                    
+                    // 从原图中截取人脸区域
+                    if (faceImage.src) {
+                        // 从图片中截取
+                        const img = new Image();
+                        img.src = faceImage.src;
+                        img.onload = () => {
+                            ctx.drawImage(
+                                img, 
+                                faceBox.x, faceBox.y, faceBox.width, faceBox.height,
+                                0, 0, 64, 64
+                            );
+                        };
+                    } else {
+                        // 从canvas中截取
+                        ctx.drawImage(
+                            canvas, 
+                            faceBox.x, faceBox.y, faceBox.width, faceBox.height,
+                            0, 0, 64, 64
+                        );
+                    }
+                });
+                
+                startFaceSelection.disabled = false;
+            }
+            
+            faceTotalNumber.textContent = detectedFaces.length;
+        }
+        
+        // 随机选择一个人脸
+        function selectRandomFace() {
+            if (detectedFaces.length === 0) {
+                showToast('没有可选择的人脸', 'error');
+                return;
+            }
+            
+            // 随机选择一个人脸
+            const randomIndex = Math.floor(Math.random() * detectedFaces.length);
+            const selectedFace = detectedFaces[randomIndex];
+            
+            // 更新显示
+            faceSection.classList.add('hidden');
+            faceSelectionArea.classList.remove('hidden');
+            
+            // 设置图片
+            if (faceImage.src) {
+                selectedFaceImage.src = faceImage.src;
+            } else {
+                selectedFaceImage.src = canvas.toDataURL('image/png');
+            }
+            
+            // 高亮显示选中的人脸
+            selectedFaceHighlight.innerHTML = '';
+            const faceBox = selectedFace.box;
+            
+            const highlight = document.createElement('div');
+            highlight.className = 'face-highlight';
+            highlight.style.left = `${faceBox.x}px`;
+            highlight.style.top = `${faceBox.y}px`;
+            highlight.style.width = `${faceBox.width}px`;
+            highlight.style.height = `${faceBox.height}px`;
+            selectedFaceHighlight.appendChild(highlight);
+            
+            // 更新人脸编号
+            faceNumber.textContent = randomIndex + 1;
+            
+            // 显示提示
+            showToast(`已选中人脸 #${randomIndex + 1}`, 'success');
+        }
+        
+        // 更新历史记录列表
+        function updateHistoryList() {
+            historyList.innerHTML = '';
+            
+            if (pickedNames.length === 0) {
+                const emptyItem = document.createElement('div');
+                emptyItem.className = 'col-span-full text-center text-gray-400 py-4';
+                emptyItem.innerHTML = '<i class="fa-solid fa-history mr-2"></i>暂无点名记录';
+                historyList.appendChild(emptyItem);
+                return;
+            }
+            
+            pickedNames.forEach((name, index) => {
+                const historyItem = document.createElement('div');
+                historyItem.className = 'bg-gray-50 rounded-lg p-3 flex items-center justify-between shadow-sm hover:shadow transition-shadow';
+                historyItem.innerHTML = `
+                    <span class="font-medium">${name}</span>
+                    <span class="text-xs text-gray-400">${index + 1}</span>
+                `;
+                historyList.appendChild(historyItem);
+            });
+        }
+        
+        // 显示加载中
+        function showLoading(text = '处理中...') {
+            loadingText.textContent = text;
+            loadingModal.classList.remove('hidden');
+        }
+        
+        // 隐藏加载中
+        function hideLoading() {
+            loadingModal.classList.add('hidden');
+        }
+        
+        // 显示提示框
+        function showToast(message, type = 'info') {
+            // 创建toast元素
+            const toast = document.createElement('div');
+            
+            // 设置样式和内容
+            let bgColor, icon;
+            switch(type) {
+                case 'success':
+                    bgColor = 'bg-green-500';
+                    icon = 'fa-check-circle';
+                    break;
+                case 'error':
+                    bgColor = 'bg-red-500';
+                    icon = 'fa-exclamation-circle';
+                    break;
+                case 'warning':
+                    bgColor = 'bg-yellow-500';
+                    icon = 'fa-exclamation-triangle';
+                    break;
+                default:
+                    bgColor = 'bg-blue-500';
+                    icon = 'fa-info-circle';
+            }
+            
+            toast.className = `${bgColor} text-white px-4 py-3 rounded-lg shadow-lg flex items-center fixed top-4 right-4 z-50 transform transition-all duration-300 translate-x-full`;
+            toast.innerHTML = `
+                <i class="fa-solid ${icon} mr-2"></i>
+                <span>${message}</span>
+            `;
+            
+            // 添加到页面
+            document.body.appendChild(toast);
+            
+            // 显示动画
+            setTimeout(() => {
+                toast.classList.remove('translate-x-full');
+            }, 10);
+            
+            // 自动关闭
+            setTimeout(() => {
+                toast.classList.add('translate-x-full');
+                setTimeout(() => {
+                    document.body.removeChild(toast);
+                }, 300);
+            }, 3000);
+        }
+        
+        // 切换主题
+        function toggleTheme() {
+            const body = document.body;
+            if (body.classList.contains('dark')) {
+                body.classList.remove('dark');
+                themeToggle.innerHTML = '<i class="fa-solid fa-moon text-gray-600"></i>';
+            } else {
+                body.classList.add('dark');
+                themeToggle.innerHTML = '<i class="fa-solid fa-sun text-yellow-400"></i>';
+            }
+        }
+    </script>
+
+
+    </body></html>
